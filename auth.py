@@ -1,4 +1,7 @@
 from functools import wraps
+import os
+import hashlib
+import hmac
 
 from flask import (
     Blueprint,
@@ -16,18 +19,38 @@ from database import conectar
 
 
 auth = Blueprint("auth", __name__)
+def identificador_senha(senha_hash):
+
+    return hashlib.sha256(
+        senha_hash.encode("utf-8")
+    ).hexdigest()
+
 
 
 def criar_admin():
+
     conexao = conectar()
 
     try:
+
         usuario = conexao.execute(
             "SELECT id FROM usuarios WHERE login = ?",
             ("admin",)
         ).fetchone()
 
         if usuario is None:
+
+            senha_inicial = os.environ.get(
+                "ADMIN_PASSWORD", ""
+            )
+
+            if len(senha_inicial) < 12:
+
+                raise RuntimeError(
+                    "Defina ADMIN_PASSWORD com pelo menos "
+                    "12 caracteres para criar o administrador."
+                )
+
             conexao.execute("""
                 INSERT INTO usuarios
                 (nome, login, senha_hash, perfil)
@@ -35,7 +58,7 @@ def criar_admin():
             """, (
                 "Administrador",
                 "admin",
-                generate_password_hash("123456"),
+                generate_password_hash(senha_inicial),
                 "administrador"
             ))
 
@@ -44,7 +67,10 @@ def criar_admin():
             print("Administrador inicial criado!")
 
     finally:
+
         conexao.close()
+
+
 
 
 def login_obrigatorio(funcao):
@@ -55,6 +81,7 @@ def login_obrigatorio(funcao):
         usuario_id = session.get("usuario_id")
 
         if not usuario_id:
+
             return jsonify({
                 "erro": "Autenticação necessária."
             }), 401
@@ -62,20 +89,50 @@ def login_obrigatorio(funcao):
         conexao = conectar()
 
         try:
+
             usuario = conexao.execute("""
-                SELECT id, nome, login, perfil
+                SELECT
+                    id,
+                    nome,
+                    login,
+                    perfil,
+                    senha_hash
+
                 FROM usuarios
+
                 WHERE id = ? AND ativo = 1
+
             """, (usuario_id,)).fetchone()
 
         finally:
+
             conexao.close()
 
         if usuario is None:
+
             session.clear()
 
             return jsonify({
                 "erro": "Sessão inválida."
+            }), 401
+
+        identificador_atual = identificador_senha(
+            usuario["senha_hash"]
+        )
+
+        identificador_sessao = session.get(
+            "identificador_senha", ""
+        )
+
+        if not hmac.compare_digest(
+            identificador_sessao,
+            identificador_atual
+        ):
+
+            session.clear()
+
+            return jsonify({
+                "erro": "Sessão expirada. Entre novamente."
             }), 401
 
         session["perfil"] = usuario["perfil"]
@@ -83,6 +140,7 @@ def login_obrigatorio(funcao):
         return funcao(*args, **kwargs)
 
     return verificar
+
 
 
 def permissao(*perfis):
@@ -144,8 +202,13 @@ def login():
             }), 401
 
         session.clear()
+
         session["usuario_id"] = usuario["id"]
         session["perfil"] = usuario["perfil"]
+
+        session["identificador_senha"] = identificador_senha(
+            usuario["senha_hash"]
+        )
 
         return jsonify({
             "mensagem": "Login realizado com sucesso.",

@@ -9,7 +9,9 @@ from auth import auth, criar_admin
 from clientes import clientes
 from tecnicos import tecnicos
 from chamados import chamados
-
+from dashboard import dashboard
+from usuarios import usuarios
+from relatorios import relatorios
 
 app = Flask(__name__)
 
@@ -36,6 +38,9 @@ app.register_blueprint(auth)
 app.register_blueprint(clientes)
 app.register_blueprint(tecnicos)
 app.register_blueprint(chamados)
+app.register_blueprint(dashboard)
+app.register_blueprint(usuarios)
+app.register_blueprint(relatorios)
 
 
 @app.route("/", methods=["GET"])
@@ -70,5 +75,5 @@ if __name__ == "__main__":
     app.run(
         host="127.0.0.1",
         port=5000,
-        debug=True
+        debug=False
     )
